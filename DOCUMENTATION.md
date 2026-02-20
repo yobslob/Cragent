@@ -64,6 +64,7 @@ The agent treats the website as a **black box** — it has no access to backend 
 The Executor uses a **lean 9-tool architecture** — 6 core tools that cover ~90% of testing scenarios plus 3 edge-case tools for specialized situations. This is a deliberate pruning of the original 16 human-simulation browsing tools from the open-source codebase, designed to reduce LLM decision fatigue, lower token usage, and eliminate rendering latency by shifting mechanical complexity into the backend code of each tool.
 
 The system includes three cross-cutting concerns integrated with zero or negative token overhead:
+
 - **Human-in-the-Loop (HITL)** — A conversational interface on the Planner for initial scoping, mid-run clarifications, and credential injection via LangGraph interrupts (not blocking tools).
 - **Bot Defense** — A defense-in-depth strategy using `playwright-stealth` for passive avoidance and a State Handoff pattern for human CAPTCHA solving, both operating entirely outside the LLM's context.
 - **Observability** — Full tool-level tracing via LangSmith, running as an async background thread with zero token overhead and zero latency impact.
@@ -280,6 +281,7 @@ class AgentState(TypedDict):
 ```
 
 **Test Case Schema:**
+
 ```json
 {
   "test_id": "TC-001",
@@ -299,6 +301,7 @@ class AgentState(TypedDict):
 ```
 
 **Test Result Schema (Compressed):**
+
 ```json
 {
   "test_id": "TC-001",
@@ -453,12 +456,14 @@ Standard passwords and API keys should **not** be requested via mid-run chat. Th
 
 1. **Pre-load:** Before the test begins, the user provides credentials in a secure form in the UI (not the chat).
 2. **State Injection:** Passed to the agent as a secure dictionary in `AgentState.credentials`:
+
    ```json
    {
      "amazon.in": {"username": "test_user", "password": "secure123"},
      "staging.myapp.com": {"username": "admin", "password": "admin456"}
    }
    ```
+
 3. **Executor Access:** The Executor uses `evaluate_javascript` or `interact_with_element` to fill login forms, pulling credentials from the vault. Passwords never appear in the Planner's reasoning logs or test plan outputs.
 
 ---
@@ -485,6 +490,7 @@ Before involving a human, minimize how often the agent looks like a bot.
 **Effect:** Patches the "headless" leaks that cheap bot detectors use — `navigator.webdriver` flags, Chrome automation indicators, missing plugins, etc.
 
 **Implementation:**
+
 ```python
 from playwright_stealth import stealth_async
 
@@ -532,6 +538,7 @@ Toggling a running headless browser to headed mode is technically unstable and o
 ```
 
 **Why this is efficient:**
+
 - **Zero Token Waste:** The LLM stops immediately upon CAPTCHA detection.
 - **Zero Context Loss:** LangGraph checkpoints preserve the full memory and past_results.
 - **Stability:** The production headless driver is never at risk — the human solves in a completely separate browser instance.
@@ -618,6 +625,7 @@ A11y Tree:         ~500-3,000 tokens (clean, hierarchical, interactive-element-f
 ```
 
 The A11y Tree provides:
+
 - **Role** of each element (button, link, textbox, heading).
 - **Name/label** of each element.
 - **Current value** (for inputs).
@@ -1007,3 +1015,71 @@ CAPTCHA / BOT-BLOCKER PROTOCOL
 ═══════════════════════════════════════════════════════════
 
 If you detect a CAPTCHA, bot challenge, or "verify you are
+```
+
+## 12. Edge Cases & Failure Handling
+
+| Scenario | Handling Strategy |
+|---|---|
+| **Page loads with a CAPTCHA** | Executor immediately returns `status="BLOCKED_CAPTCHA"`. Graph suspends via LangGraph Interrupt. State Handoff exports `storage_state.json`, human solves in a separate headed instance, graph resumes with fresh cookies. Zero tokens burned. |
+| **Pop-up/modal blocks interaction** | Executor's self-healing: call `get_page_state()`, find dismiss/close button in A11y tree, `interact_with_element` to close it, retry original action. |
+| **Dynamic content hasn't loaded** | Executor calls `wait_for_condition("network_idle")` or `wait_for_condition("element_visible", element_id)`, then re-calls `get_page_state()`. Up to 3 retries. |
+| **Element ID no longer valid after page update** | Executor re-calls `get_page_state()` to get fresh IDs, matches element by role/name in the new A11y tree, retries with the new ID. |
+| **Redirect to login wall** | Executor reports the redirect in observations. Planner checks if credentials exist in the Secrets Vault — if yes, generates an auth test first in next round; if no, sets `status="AWAITING_USER_INPUT"` with `pending_message` requesting credentials. |
+| **Async form submission (loading spinner)** | Executor calls `wait_for_condition("network_idle")` after form submit, then `get_page_state()` to verify success/error message. |
+| **Site is completely down (5xx)** | `navigate_to` returns an error. Executor reports FAIL. If multiple tests fail with the same error, Planner triggers `TESTING_COMPLETE` with a "site unreachable" status. |
+| **A11y Tree is empty or minimal** | Planner falls back to having an Executor use `evaluate_javascript("document.body.innerText")` and passes the text representation instead. |
+| **File upload required** | Executor uses `upload_file(element_id, file_path)` to inject a mock file directly via Playwright's `setInputFiles()` API. |
+| **Need to verify localStorage/cookies** | Executor uses `evaluate_javascript("JSON.stringify(localStorage)")` or similar to read hidden browser state. |
+| **Link opens in new tab** | Backend automatically intercepts the new-tab URL and loads it in the current headless context. No tab management needed by the Executor. |
+| **2FA / MFA prompt encountered** | Executor sets `status="AWAITING_USER_INPUT"` with `pending_message="2FA code required"`. Graph suspends. User provides code via chat. Code is injected into state. Graph resumes and Executor types the code. |
+| **Anti-bot fingerprint check (no visible CAPTCHA)** | `playwright-stealth` patches handle most passive fingerprint checks silently at the backend level. If the site still blocks, Executor reports FAIL with observation "Possible anti-bot block — no interactive elements found." |
+| **Credentials missing for a login-gated page** | Planner sets `status="AWAITING_USER_INPUT"` with `pending_message="I found a login form at {url}. Please provide credentials."` Graph suspends. User provides creds via secure form. Creds injected into Secrets Vault. Graph resumes. |
+
+---
+
+## 13. Technology Stack
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| **LLM (Cloud)** | OpenAI GPT-4/4o, Anthropic Claude, Google Gemini | Primary reasoning engine for Planner and Executor. |
+| **LLM (Local)** | Ollama, vLLM (Llama 3, Mistral, etc.) | Cost-effective alternative for local/private deployments. |
+| **Browser Automation** | Playwright (Chromium, headless) | All browser interactions — navigation, DOM manipulation, A11y tree extraction, JS evaluation. Headless mode eliminates rendering overhead. |
+| **Bot Avoidance** | `playwright-stealth` | Patches headless browser fingerprint leaks (`navigator.webdriver`, missing plugins, etc.) at the context level. Zero token overhead. |
+| **Agent Orchestration** | LangGraph / LangChain | Graph-based node orchestration, state management, conditional routing between Planner and Executor, checkpoint-based interrupts for HITL and CAPTCHA handoff. |
+| **Human-in-the-Loop** | LangGraph Interrupts (Suspend/Resume) | Graph pauses, state is checkpointed, user provides input via chat/UI, state is injected, graph resumes. No blocking tools. |
+| **Credentials Management** | Secrets Vault (in-memory dict / secure store) | Pre-loaded credentials keyed by domain. Accessed by Executor at runtime. Never appears in Planner reasoning logs. |
+| **Observability** | LangSmith | Async background tracing of every tool call, token count, and latency. Zero token overhead, zero latency impact. 3 env vars to configure. |
+| **Parallel Execution** | Python asyncio / multiprocessing | Running multiple Executor instances concurrently with isolated browser contexts. |
+| **State Management** | Python TypedDict / Pydantic models | Shared state schema passed between nodes, including HITL fields, bot defense fields, and credentials. |
+| **Reporting** | Markdown / JSON | Structured test reports for human and machine consumption. |
+
+---
+
+## 14. Future Considerations
+
+These are planned enhancements that extend the agent's capabilities beyond the current scope:
+
+### Near-Term Additions
+
+| Feature | Description |
+|---|---|
+| **RAG-Augmented Planner** | Attach a retrieval-augmented generation (RAG) pipeline to the Planner that queries domain-specific testing guides (e.g., WCAG checklists for accessibility-heavy sites, OWASP basics for security-sensitive sites) to improve test quality based on the type of website detected. |
+| **Structured Report Formats** | Export test results as JUnit XML, HTML dashboards, or direct integrations with issue trackers (Jira, GitHub Issues). |
+| **CAPTCHA Solver Service Integration** | Optional integration with third-party CAPTCHA solving APIs (2Captcha, Anti-Captcha, CapMonster) as an automated fallback before the human State Handoff, for fully unattended CI/CD runs. |
+| **Proxy Rotation** | Rotating residential/mobile proxies to reduce IP-based bot detection on sites with aggressive anti-automation. |
+
+### Long-Term Vision
+
+| Feature | Description |
+|---|---|
+| **Multimodal Vision** | Add screenshot-based visual regression testing by passing page screenshots to a vision-capable LLM (GPT-4V, Gemini Pro Vision) to detect broken layouts, color contrast issues, and visual anomalies. |
+| **CI/CD Integration** | Run the agent as a GitHub Actions workflow triggered on every PR or deployment, with results posted as PR comments. |
+| **Test Case Persistence** | Store generated test cases in a database so they can be re-run as regression suites without re-planning. |
+| **Human-in-the-Loop Approval Gate** | Allow a human reviewer to approve/modify the Planner's test batch before execution, useful for critical production testing. |
+| **Cross-Browser Testing** | Run Executors on Chromium, Firefox, and WebKit in parallel to catch browser-specific issues. |
+| **LangFuse Migration Path** | If data sovereignty or self-hosting becomes a requirement, migrate observability from LangSmith to LangFuse (open-source, self-hostable, full OSS feature parity). |
+
+---
+
+> **Note:** This document represents the project's design as of the current planning phase. Implementation details (specific LangGraph node code, Playwright configuration, prompt tuning) will be developed iteratively as the system is built and tested against real websites.
