@@ -1,0 +1,91 @@
+# config.yaml — Autonomous Testing Agent Configuration
+
+# --- Core Settings ---
+target_url: ""                          # Set via CLI: --url
+testing_instructions: ""                # Set via CLI: --instructions or pre-run chat
+
+# --- Depth & Batch Control ---
+max_depth: 2                            # Max planning rounds before forced termination
+batch_size: 4                           # Test cases per planning round (3-7 recommended)
+max_retries: 3                          # Per-test-step retry limit
+
+# --- Concurrency ---
+max_concurrency: 3                      # Max parallel Executor browser contexts
+inter_request_delay_ms: [500, 1500]     # Random delay range between navigations (ms)
+stagger_start_delay_ms: [0, 2000]       # Random delay range for Executor start stagger
+
+# --- Timeouts ---
+graph_timeout_seconds: 1800             # Max total run time (30 min default)
+node_inactivity_timeout_seconds: 90     # Kill Executor if no tool call in this window
+node_absolute_timeout_seconds: 300      # Hard ceiling per Executor (5 min)
+navigation_timeout_seconds: 30          # Playwright page.goto timeout
+max_graph_iterations: 50                # Max total graph node executions (catches loops)
+
+# --- LLM Configuration ---
+primary_model: "ollama/llama3.1:8b"
+fallback_model: "ollama/llama3.1:8b"
+evaluator_model: "ollama/llama3.1:8b"
+synthesizer_model: "ollama/llama3.1:8b"
+ollama_base_url: "http://localhost:11434"  # Cheaper model for Synthesizer
+temperature: 0.1                        # Low temperature for deterministic test generation
+llm_max_retries: 5                      # Max retries on LLM API failures
+llm_base_delay_seconds: 1              # Base delay for exponential backoff
+rate_limit_min_wait_seconds: 3         # Minimum wait (s) after a 429 — 60s/20 RPM = 3s per slot (OpenRouter free tier)
+
+# --- Local Model Support (Ollama / vLLM) ---
+# Uncomment to use local models:
+# primary_model: "ollama/llama3:70b"
+# fallback_model: "ollama/llama3:8b"
+# ollama_base_url: "http://localhost:11434"
+
+# --- OpenRouter Support ---
+# Uncomment to route through OpenRouter (access 100+ models via one API):
+# primary_model: "openrouter/anthropic/claude-sonnet-4-20250514"
+# fallback_model: "openrouter/meta-llama/llama-3-70b-instruct"
+# openrouter_base_url: "https://openrouter.ai/api/v1"
+# Set OPENROUTER_API_KEY in .env
+
+# --- Groq Support ---
+# Uncomment to use Groq (ultra-fast inference):
+# primary_model: "groq/llama-3.3-70b-versatile"
+# fallback_model: "groq/llama-3.1-8b-instant"
+# Set GROQ_API_KEY in .env
+
+# --- Browser Configuration ---
+headless: true                          # Always true for production; false for debugging
+browser: "chromium"                     # chromium | firefox | webkit
+stealth_enabled: true                   # Apply playwright-stealth patches
+viewport_width: 1280
+viewport_height: 720
+
+# --- Proxy Configuration (optional) ---
+# proxy_list:
+#   - "http://proxy1:8080"
+#   - "http://proxy2:8080"
+#   - "socks5://proxy3:1080"
+# proxy_rotation: "round-robin"         # round-robin | random
+
+# --- Context Window Management ---
+a11y_tree_max_nodes: 150                # Max nodes after pruning
+token_budget_past_results: 2000         # Max tokens for past_results in Planner prompt
+
+# --- Cookie Consent ---
+dismiss_cookie_consent: true            # Auto-dismiss cookie banners on first navigation
+cookie_consent_timeout_ms: 3000         # How long to wait for banner to appear
+
+# --- Authentication ---
+auth_bootstrap_enabled: true            # Run Auth Bootstrap Node if credentials provided
+login_url_patterns:                     # URL patterns that indicate a login page
+  - "/login"
+  - "/signin"
+  - "/auth"
+  - "/sso"
+
+# --- Observability ---
+langsmith_enabled: true
+langsmith_project: "autonomous-testing-agent"
+credential_redaction_enabled: true      # Redact secrets from LangSmith traces
+
+# --- Output ---
+report_format: "markdown"               # markdown | json
+report_output_path: "./test-report"
