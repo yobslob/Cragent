@@ -10,3 +10,10 @@ dist/
 build/
 .venv/
 report.md
+
+# Internal project files
+tasks/
+.github/
+plan-autonomousWebsiteTestingAgent.prompt.md
+uv.lock
+config.yaml
