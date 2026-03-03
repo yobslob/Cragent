@@ -1,0 +1,47 @@
+# ── Autonomous Website Testing Agent Configuration ──
+
+target_url: "https://automationexercise.com/"
+
+# Additional pages to test (paths resolved against target_url, or full URLs)
+extra_urls: []
+  # - "/products"
+  # - "/view_cart"
+  # - "/login"
+
+llm:
+  planner:
+    provider: "gemini"          # gemini | openrouter | groq | ollama | nvidia | openai
+    model: "gemini-2.5-flash"
+    api_key_env: "GOOGLE_API_KEY"  # Set GOOGLE_API_KEY env var
+
+  executor:
+    provider: "ollama"
+    model: "gpt-oss:120b-cloud"  # Executor needs a capable model for browser interaction
+
+  summarizer:
+    provider: "ollama"
+    model: "llama3.1:8b"
+
+  fallback:
+    provider: "ollama"
+    model: "gpt-oss:120b-cloud"
+
+concurrency:
+  max_executors: 1                  # Keep at 1 to avoid 502s from concurrent cloud model requests
+  stagger_delay_seconds: 2.0        # Increased delay between executor launches
+  step_timeout: 180                 # Per-agent step timeout in seconds
+
+depth:
+  max_depth: 1                      # 0 = root only, 1-2 = follow sub-pages discovered by planner
+
+approval:
+  mode: "auto_approve"              # auto_approve | interrupt | auto_decline
+  timeout_seconds: 120
+
+report:
+  output_path: "report.md"
+
+browser:
+  headless: true                   # false = see the browser (useful for debugging)
+  proxy: null
+  use_cloud: false
