@@ -1,4 +1,5 @@
 # Cragent
+>
 > An Autonomous Website Testing Agent
 
 A CLI tool that crawls a target URL, generates test plans via LLM, executes them with headless browsers, and produces a severity-classified Markdown report.
@@ -24,11 +25,13 @@ This tool is designed to automate quality assurance testing by simulating human-
 
 #### Core & Orchestration
 
-- Python 3.12
+- Python ≥ 3.11
 
 - LangGraph
 
-- browser-use v0.12.1
+- browser-use ≥ v0.12.1
+
+- Playwright (for screenshot capture during planning)
 
 #### Data & CLI
 
@@ -44,21 +47,21 @@ This tool is designed to automate quality assurance testing by simulating human-
 
 - OpenRouter, Groq, NVIDIA NIM, OpenAI
   
-
 ## Pre-requisites
 
-- Install uv for Python dependency management.
+- Install [uv](https://docs.astral.sh/uv/) for Python dependency management.
 
-- Initialize a .env file with your required API keys (e.g., GOOGLE_API_KEY, OPENAI_API_KEY).
+- Initialize a `.env` file with your required API keys (e.g., `GOOGLE_API_KEY`, `OPENAI_API_KEY`).
 
-- Configure your config.yaml file to set the target_url and your preferred LLMs.
+- Configure your `config.yaml` file to set the `target_url` and your preferred LLMs.
 
 ## Installation
 
-Install the dependencies:
+Install the dependencies and install the Playwright browser binaries:
 
 ```Bash
 make develop
+uv run playwright install chromium
 ```
 
 ## Setup
@@ -109,17 +112,20 @@ make develop
 
 ## Local Development
 
-To run the agent in interactive mode (prompts for sub-page approvals):
+To run the agent (using `approval.mode` from `config.yaml`):
 
 ```Bash
 make run
 ```
 
-To run the agent and automatically approve all sub-pages:
+To run the agent and automatically approve all sub-pages (overrides `approval.mode`):
 
 ```Bash
 make run-auto
 ```
+
+To run in interactive mode (prompts for each discovered sub-page), set `approval.mode: interrupt` in `config.yaml` and then run `make run`.
+
 Advanced CLI execution (override target URL, add seed URLs, and provide custom instructions):
 
 ```Bash
@@ -137,9 +143,9 @@ uv run python -m src.main --config config.yaml \
 | `--config PATH` | Path to config file (default: `config.yaml`) |
 | `--url URL` | Override `target_url` from config |
 | `--urls PATH...` | Additional pages to test |
-| `-i TEXT` | Testing instructions (skips the interactive prompt) |
+| `--instructions / -i TEXT` | Testing instructions (skips the interactive prompt) |
 | `--auto-approve` | Skip approval prompts for sub-pages |
-| `-v` | Enable debug logging |
+| `--verbose / -v` | Enable debug logging |
 
 ## Configuration Reference
 
@@ -150,16 +156,28 @@ uv run python -m src.main --config config.yaml \
 | `llm.planner` | — | LLM used to generate test plans |
 | `llm.executor` | — | LLM used to drive the browser |
 | `llm.summarizer` | — | LLM used to write the final report |
-| `llm.fallback` | — | Fallback LLM if the planner fails |
+| `llm.fallback` | `null` | Optional fallback LLM if the planner fails |
 | `concurrency.max_executors` | `4` | Number of parallel browser instances |
+| `concurrency.stagger_delay_seconds` | `2.0` | Delay (seconds) between starting each parallel browser executor |
+| `concurrency.step_timeout` | `180` | Per-step timeout (seconds) for browser agents |
 | `depth.max_depth` | `2` | How many levels deep to follow sub-pages (0 = root only) |
 | `approval.mode` | `auto_approve` | `auto_approve`, `interrupt` (manual), or `auto_decline` |
+| `approval.timeout_seconds` | `120` | Seconds to wait for human approval before timing out |
 | `browser.headless` | `true` | Set to `false` to watch the browser in real time |
+| `browser.proxy` | `null` | Optional proxy URL for browser sessions |
+| `browser.use_cloud` | `false` | Use cloud browser instances instead of local |
+| `cost.max_total_cost` | `null` | Optional budget cap for total LLM costs (USD) |
+| `cost.calculate_cost` | `true` | Whether to track and log LLM token costs |
 | `report.output_path` | `report.md` | Where to save the report |
 
 ## Supported LLMs
 
-Each LLM role (planner, executor, summarizer, fallback) can use any of these providers:
+> **Provider availability by role:**
+>
+> - **Planner**: all providers (`gemini` is the only one with multimodal/screenshot support; others fall back to text-only planning)
+> - **Executor**: `openrouter`, `groq`, `ollama`, `nvidia`, `openai`
+> - **Summarizer**: `gemini` or `ollama` only
+> - **Fallback**: `openrouter`, `groq`, `ollama`, `nvidia`, `openai`
 
 | Provider | Config value | Requirements |
 |---|---|---|
