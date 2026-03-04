@@ -1,46 +1,79 @@
 # Autonomous Website Testing Agent
 
-CLI tool that crawls a target URL, generates test plans via LLM, executes them with headless browsers, and produces a severity-classified Markdown report.
+Automated testing tool that takes a website URL, generates test cases using an LLM, runs them in a headless browser, and outputs a severity-classified Markdown report.
 
-**Stack:** Python 3.12 · browser-use v0.12.1 · LangGraph · Gemini · Pydantic v2 · Rich
+## Prerequisites
 
-## Quick Start
+- **Python 3.11+**
+- **[uv](https://docs.astral.sh/uv/)** — Python package manager
+- **Playwright** browsers (installed automatically on first run)
+- At least one LLM provider set up (see [Supported LLMs](#supported-llms))
 
-```bash
-make develop                  # Install dependencies (uv sync --all-extras)
-cp .env.example .env          # Add API keys (GOOGLE_API_KEY, etc.)
-nano config.yaml              # Set target_url and LLM preferences
-make run                      # Run the agent
-```
-
-## Architecture
-
-LangGraph `StateGraph` with 6 nodes:
-
-```
-START → dequeue → approve → plan ─┬→ execute → compile → dequeue (loop)
-                                   └→ plan (clarification loop)
-                                                   ↓ (queue empty)
-                                               summarize → END
-```
-
-| Node | Purpose |
-|---|---|
-| **dequeue** | Pops next URL from queue, skips visited or depth-exceeded |
-| **approve** | Human-in-the-loop gate via `interrupt()` (configurable) |
-| **plan** | Generates `TestPlan` via Gemini (multimodal) with 3-tier fallback |
-| **execute** | Parallel browser-use agents per test case, bounded by semaphore |
-| **compile** | Aggregates results, enqueues discovered sub-pages |
-| **summarize** | LLM generates final Markdown report → `report.md` |
-
-The planner uses direct LLM calls with screenshots — it never spawns a browser agent. Only the executor uses browser-use.
-
-## CLI Usage
+## Installation
 
 ```bash
-make run                      # Interactive mode
+git clone <repo-url> && cd Cragent
+make develop
+```
+
+This installs all dependencies via `uv sync`.
+
+## Setup
+
+1. **Create your env file:**
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Add your API keys here (e.g. `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, etc.).
+
+2. **Create / edit `config.yaml`:**
+
+   ```yaml
+   target_url: https://example.com
+
+   extra_urls:
+     - /login
+     - /products
+
+   llm:
+     planner:
+       provider: gemini
+       model: gemini-2.0-flash
+     executor:
+       provider: ollama
+       model: qwen2.5:7b
+     summarizer:
+       provider: ollama
+       model: qwen2.5:7b
+     fallback:
+       provider: ollama
+       model: qwen2.5:7b
+
+   concurrency:
+     max_executors: 4
+
+   depth:
+     max_depth: 2
+
+   approval:
+     mode: auto_approve
+
+   browser:
+     headless: true
+   ```
+
+## Usage
+
+**Quick run:**
+
+```bash
+make run                      # Interactive mode (prompts for instructions)
 make run-auto                 # Auto-approve all sub-pages
 ```
+
+**Full CLI:**
 
 ```bash
 uv run python -m src.main --config config.yaml \
@@ -50,50 +83,68 @@ uv run python -m src.main --config config.yaml \
   --auto-approve -v
 ```
 
-| Flag | Purpose |
+### CLI Flags
+
+| Flag | Description |
 |---|---|
-| `--config PATH` | Config file (default: `config.yaml`) |
-| `--url URL` | Override `target_url` |
-| `--urls PATH...` | Additional pages to seed (resolved against target) |
-| `-i TEXT` | Testing instructions (skips interactive prompt) |
-| `--auto-approve` | Auto-approve all sub-pages |
-| `-v` | Debug logging |
+| `--config PATH` | Path to config file (default: `config.yaml`) |
+| `--url URL` | Override `target_url` from config |
+| `--urls PATH...` | Additional pages to test |
+| `-i TEXT` | Testing instructions (skips the interactive prompt) |
+| `--auto-approve` | Skip approval prompts for sub-pages |
+| `-v` | Enable debug logging |
 
-## Configuration
+### Output
 
-All options in `config.yaml` — see [`src/config.py`](src/config.py) for the full schema.
+The agent produces a `report.md` file with test results classified by severity.
+
+## Configuration Reference
 
 | Setting | Default | Description |
 |---|---|---|
 | `target_url` | — | Root URL to test |
-| `extra_urls` | `[]` | Additional paths or URLs to seed |
-| `llm.planner` | gemini | Planner LLM (multimodal, screenshot-based) |
-| `llm.executor` | ollama | Executor LLM (browser interaction) |
-| `llm.summarizer` | ollama | Report generation LLM |
-| `llm.fallback` | ollama | Fallback when primary planner fails |
-| `concurrency.max_executors` | 4 | Parallel browser instances |
-| `depth.max_depth` | 2 | Sub-page recursion depth (0 = root only) |
-| `approval.mode` | `auto_approve` | `auto_approve` · `interrupt` · `auto_decline` |
-| `browser.headless` | `true` | Set `false` to watch execution |
+| `extra_urls` | `[]` | Additional paths or full URLs to include |
+| `llm.planner` | — | LLM used to generate test plans |
+| `llm.executor` | — | LLM used to drive the browser |
+| `llm.summarizer` | — | LLM used to write the final report |
+| `llm.fallback` | — | Fallback LLM if the planner fails |
+| `concurrency.max_executors` | `4` | Number of parallel browser instances |
+| `depth.max_depth` | `2` | How many levels deep to follow sub-pages (0 = root only) |
+| `approval.mode` | `auto_approve` | `auto_approve`, `interrupt` (manual), or `auto_decline` |
+| `browser.headless` | `true` | Set to `false` to watch the browser in real time |
+| `report.output_path` | `report.md` | Where to save the report |
 
-## LLM Providers
+## Supported LLMs
 
-| Provider | Use Case | Notes |
+Each LLM role (planner, executor, summarizer, fallback) can use any of these providers:
+
+| Provider | Config value | Requirements |
 |---|---|---|
-| `gemini` | Planner | Multimodal via `google-genai` SDK (not through factory) |
-| `ollama` | Executor / Fallback | Local; uses `ChatOllamaFixed` wrapper |
-| `openrouter` | Any role | Any model via OpenRouter API |
-| `groq` | Any role | Fast inference |
-| `nvidia` | Any role | NVIDIA NIM endpoints |
-| `openai` | Any role | Direct OpenAI API |
+| Google Gemini | `gemini` | `GOOGLE_API_KEY` in `.env` |
+| Ollama | `ollama` | Local Ollama instance running |
+| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` in `.env` |
+| Groq | `groq` | `GROQ_API_KEY` in `.env` |
+| NVIDIA NIM | `nvidia` | `NVIDIA_API_KEY` in `.env` |
+| OpenAI | `openai` | `OPENAI_API_KEY` in `.env` |
+
+### Provider config format
+
+Each LLM entry in `config.yaml` takes:
+
+```yaml
+provider: gemini          # One of the providers above
+model: gemini-2.0-flash   # Model identifier
+base_url: null            # Optional: custom endpoint URL
+api_key_env: null         # Optional: override env var name for the API key
+```
 
 ## Development
 
 ```bash
 make check          # Lint + test
-make lint           # ruff check src/ tests/
-make format         # ruff format + fix
-make test           # pytest tests/ -v
+make lint           # Linting only
+make format         # Auto-format code
+make test           # Run tests
 make clean          # Remove caches
 ```
 
