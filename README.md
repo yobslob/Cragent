@@ -1,22 +1,65 @@
-# Autonomous Website Testing Agent
+# Cragent
+> An Autonomous Website Testing Agent
 
-Automated testing tool that takes a website URL, generates test cases using an LLM, runs them in a headless browser, and outputs a severity-classified Markdown report.
+A CLI tool that crawls a target URL, generates test plans via LLM, executes them with headless browsers, and produces a severity-classified Markdown report.
+It uses a recursive LangGraph architecture to orchestrate planners and parallel executors.
 
-## Prerequisites
+## About
 
-- **Python 3.11+**
-- **[uv](https://docs.astral.sh/uv/)** — Python package manager
-- **Playwright** browsers (installed automatically on first run)
-- At least one LLM provider set up (see [Supported LLMs](#supported-llms))
+This tool is designed to automate quality assurance testing by simulating human-like browser interactions. It allows users to:
+
+- Automatically analyze a page and generate a structured `TestPlan` using multimodal LLMs (analyzing screenshots, no browser agent spawned for planning).
+
+- Execute test cases in parallel using `browser-use` headless browser agents bounded by a semaphore.
+
+- Recursively discover sub-pages and queue them for testing.
+
+- Use a "Human-in-the-loop" (`interrupt()`) gate to manually approve or decline testing on discovered sub-pages.
+
+- Generate a final, severity-classified Markdown report (`report.md`) via an LLM summarizer.
+
+- Easily switch between LLM providers (Gemini, Ollama, OpenRouter, Groq, NVIDIA, OpenAI) for different roles (Planner, Executor, Summarizer).
+
+## Tech Stack
+
+#### Core & Orchestration
+
+- Python 3.12
+
+- LangGraph
+
+- browser-use v0.12.1
+
+#### Data & CLI
+
+- Pydantic v2
+
+- Rich
+
+#### Supported LLMs
+
+- Gemini (via google-genai SDK for multimodal planning)
+
+- Ollama (Local)
+
+- OpenRouter, Groq, NVIDIA NIM, OpenAI
+  
+
+## Pre-requisites
+
+- Install uv for Python dependency management.
+
+- Initialize a .env file with your required API keys (e.g., GOOGLE_API_KEY, OPENAI_API_KEY).
+
+- Configure your config.yaml file to set the target_url and your preferred LLMs.
 
 ## Installation
 
-```bash
-git clone <repo-url> && cd Cragent
+Install the dependencies:
+
+```Bash
 make develop
 ```
-
-This installs all dependencies via `uv sync`.
 
 ## Setup
 
@@ -64,18 +107,22 @@ This installs all dependencies via `uv sync`.
      headless: true
    ```
 
-## Usage
+## Local Development
 
-**Quick run:**
+To run the agent in interactive mode (prompts for sub-page approvals):
 
-```bash
-make run                      # Interactive mode (prompts for instructions)
-make run-auto                 # Auto-approve all sub-pages
+```Bash
+make run
 ```
 
-**Full CLI:**
+To run the agent and automatically approve all sub-pages:
 
-```bash
+```Bash
+make run-auto
+```
+Advanced CLI execution (override target URL, add seed URLs, and provide custom instructions):
+
+```Bash
 uv run python -m src.main --config config.yaml \
   --url https://example.com \
   --urls /products /login /cart \
@@ -93,10 +140,6 @@ uv run python -m src.main --config config.yaml \
 | `-i TEXT` | Testing instructions (skips the interactive prompt) |
 | `--auto-approve` | Skip approval prompts for sub-pages |
 | `-v` | Enable debug logging |
-
-### Output
-
-The agent produces a `report.md` file with test results classified by severity.
 
 ## Configuration Reference
 
@@ -148,6 +191,13 @@ make test           # Run tests
 make clean          # Remove caches
 ```
 
-## License
+### Output
 
-MIT
+The agent produces a `report.md` file with test results classified by severity.
+
+## Notes
+
+> - You need to configure config.yaml to define your llm's planner, executor, and summarizer preferences.<br>
+> - The default recursion depth for sub-pages is 2. You can adjust depth.max_depth in the config.<br>
+> - If you want to watch the agent interact with the website, set browser.headless = false in your config.<br>
+> - Developer commands available: make check (lint + test), make format (ruff fix), and make clean.<br>
