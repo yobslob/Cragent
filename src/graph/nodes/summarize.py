@@ -33,14 +33,12 @@ async def summarize_node(state: dict[str, Any], app_config: AppConfig) -> dict[s
         logger.warning("No reports to summarize — generating empty report")
         final_report = _generate_empty_report(app_config.target_url)
     else:
-        logger.info(f"Summarizing {len(reports)} planner reports")
         final_report = await _generate_report_via_llm(reports, app_config)
 
     # Write report to file
     output_path = Path(app_config.report.output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(final_report, encoding="utf-8")
-    logger.info(f"Report written to: {output_path}")
 
     return {"final_report": final_report}
 

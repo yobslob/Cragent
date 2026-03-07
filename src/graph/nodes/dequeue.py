@@ -36,19 +36,14 @@ def dequeue_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, Any]
 
         # Skip if already visited
         if normalized in visited_urls:
-            logger.info(f"Skipping already-visited URL: {request.url}")
             continue
 
         # Skip if exceeds max depth
         if request.depth > max_depth:
-            logger.info(
-                f"Skipping URL beyond max depth ({request.depth} > {max_depth}): {request.url}"
-            )
             continue
 
         # Valid request found — mark as visited and set as current
         visited_urls.append(normalized)
-        logger.info(f"Dequeued planner request: {request.url} (depth {request.depth})")
 
         return {
             "queue": queue,
@@ -59,7 +54,6 @@ def dequeue_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, Any]
         }
 
     # Queue is empty — signal end
-    logger.info("Queue drained — proceeding to summarize")
     return {
         "queue": [],
         "visited_urls": visited_urls,

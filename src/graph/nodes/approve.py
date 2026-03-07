@@ -35,21 +35,17 @@ def approve_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, Any]
 
     # Root planner is always auto-approved
     if depth == 0:
-        logger.info(f"Auto-approved root planner: {url}")
         return {}
 
     mode = app_config.approval.mode
 
     if mode == "auto_approve":
-        logger.info(f"Auto-approved sub-page planner (mode=auto_approve): {url}")
         return {}
 
     if mode == "auto_decline":
-        logger.info(f"Auto-declined sub-page planner (mode=auto_decline): {url}")
         return Command(goto="dequeue_node")
 
     # mode == "interrupt" — ask the human
-    logger.info(f"Requesting human approval for sub-page planner: {url} (depth {depth})")
     approval = interrupt(
         {
             "url": url,
@@ -59,8 +55,6 @@ def approve_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, Any]
     )
 
     if approval:
-        logger.info(f"Human approved sub-page planner: {url}")
         return {}
     else:
-        logger.info(f"Human declined sub-page planner: {url}")
         return Command(goto="dequeue_node")

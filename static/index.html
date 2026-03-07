@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cragent — Web Testing Agent</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: monospace; background: #111; color: #ddd; padding: 20px; }
+        h1 { margin-bottom: 10px; color: #fff; }
+        .input-section { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 4px; color: #aaa; }
+        input[type="text"], textarea {
+            width: 100%; padding: 8px; font-family: monospace; font-size: 14px;
+            background: #222; color: #eee; border: 1px solid #444; margin-bottom: 10px;
+        }
+        textarea { height: 80px; resize: vertical; }
+        button {
+            padding: 10px 24px; font-family: monospace; font-size: 14px; cursor: pointer;
+            background: #2a6; color: #fff; border: none; margin-right: 8px;
+        }
+        button:disabled { background: #555; cursor: not-allowed; }
+        button.stop-btn { background: #a33; }
+        #error-banner {
+            display: none; background: #a00; color: #fff; padding: 10px; margin: 10px 0;
+            font-weight: bold;
+        }
+        #status-line { color: #6cf; margin: 8px 0; min-height: 20px; }
+        #log-panel {
+            background: #0a0a0a; border: 1px solid #333; padding: 10px;
+            height: 500px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;
+            font-size: 12px; line-height: 1.4; margin: 10px 0;
+        }
+        .log-entry { margin-bottom: 2px; }
+        .log-ts { color: #666; }
+        .log-status { color: #6cf; }
+        .log-error { color: #f66; font-weight: bold; }
+        .log-stderr { color: #fa0; }
+        .log-stdout { color: #ccc; }
+        .log-log { color: #9d9; }
+        .log-interrupt { color: #f9f; }
+        #results-section { display: none; margin-top: 16px; }
+        #results-section h2 { color: #fff; margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; font-family: monospace; font-size: 13px; }
+        th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #333; }
+        th { color: #aaa; background: #1a1a1a; }
+        .status-pass { color: #4c4; font-weight: bold; }
+        .status-fail { color: #f44; font-weight: bold; }
+        .status-error { color: #fa0; font-weight: bold; }
+        .status-skip { color: #888; }
+        #summary-bar {
+            display: none; padding: 10px; margin-top: 10px; font-size: 14px; font-weight: bold;
+        }
+        .summary-all-pass { background: #142; color: #4c4; border: 1px solid #4c4; }
+        .summary-has-failures { background: #411; color: #f44; border: 1px solid #f44; }
+        #report-section { display: none; margin-top: 16px; }
+        #report-section h2 { color: #fff; margin-bottom: 10px; }
+        #report-content {
+            background: #0a0a0a; border: 1px solid #333; padding: 10px;
+            white-space: pre-wrap; font-size: 12px; max-height: 400px; overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Cragent — Autonomous Web Testing Agent</h1>
+
+    <div class="input-section">
+        <label for="url-input">Target URL:</label>
+        <input type="text" id="url-input" placeholder="https://example.com" value="">
+
+        <label for="instructions-input">Test Instructions (optional):</label>
+        <textarea id="instructions-input" placeholder="Describe what you want to test, or leave blank for auto-detect..."></textarea>
+
+        <button id="run-btn" onclick="startRun()">Run</button>
+        <button id="stop-btn" class="stop-btn" disabled onclick="stopRun()">Stop</button>
+    </div>
+
+    <div id="error-banner"></div>
+    <div id="status-line">Ready.</div>
+
+    <div id="log-panel"></div>
+
+    <div id="results-section">
+        <h2>Test Results</h2>
+        <div id="summary-bar"></div>
+        <table>
+            <thead>
+                <tr>
+                    <th>URL</th>
+                    <th>Test Name</th>
+                    <th>Status</th>
+                    <th>Evidence</th>
+                    <th>Duration</th>
+                </tr>
+            </thead>
+            <tbody id="results-body"></tbody>
+        </table>
+    </div>
+
+    <div id="report-section">
+        <h2>Full Report</h2>
+        <pre id="report-content"></pre>
+    </div>
+
+    <script>
+    // =========================================================================
+    // State
+    // =========================================================================
+    let eventSource = null;
+    let isRunning = false;
+
+    // =========================================================================
+    // DOM references
+    // =========================================================================
+    const urlInput = document.getElementById('url-input');
+    const instructionsInput = document.getElementById('instructions-input');
+    const runBtn = document.getElementById('run-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const errorBanner = document.getElementById('error-banner');
+    const statusLine = document.getElementById('status-line');
+    const logPanel = document.getElementById('log-panel');
+    const resultsSection = document.getElementById('results-section');
+    const resultsBody = document.getElementById('results-body');
+    const summaryBar = document.getElementById('summary-bar');
+    const reportSection = document.getElementById('report-section');
+    const reportContent = document.getElementById('report-content');
+
+    // =========================================================================
+    // Utility
+    // =========================================================================
+    function ts() {
+        try {
+            return new Date().toISOString().replace('T', ' ').substring(0, 23);
+        } catch (e) {
+            console.error('ts() error:', e);
+            return '???';
+        }
+    }
+
+    function escapeHtml(text) {
+        try {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        } catch (e) {
+            console.error('escapeHtml() error:', e);
+            return text;
+        }
+    }
+
+    function appendLog(content, cssClass) {
+        try {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = '<span class="log-ts">[' + escapeHtml(ts()) + ']</span> '
+                + '<span class="' + cssClass + '">' + escapeHtml(content) + '</span>';
+            logPanel.appendChild(entry);
+            logPanel.scrollTop = logPanel.scrollHeight;
+        } catch (e) {
+            console.error('appendLog() error:', e);
+        }
+    }
+
+    function showError(msg) {
+        try {
+            console.error('[Cragent UI] Error:', msg);
+            errorBanner.textContent = msg;
+            errorBanner.style.display = 'block';
+            appendLog('ERROR: ' + msg, 'log-error');
+        } catch (e) {
+            console.error('showError() error:', e);
+        }
+    }
+
+    function hideError() {
+        try {
+            errorBanner.style.display = 'none';
+        } catch (e) {
+            console.error('hideError() error:', e);
+        }
+    }
+
+    function setStatus(msg) {
+        try {
+            statusLine.textContent = msg;
+        } catch (e) {
+            console.error('setStatus() error:', e);
+        }
+    }
+
+    function setRunning(running) {
+        try {
+            isRunning = running;
+            runBtn.disabled = running;
+            stopBtn.disabled = !running;
+            if (running) {
+                hideError();
+                resultsSection.style.display = 'none';
+                resultsBody.innerHTML = '';
+                summaryBar.style.display = 'none';
+                summaryBar.className = '';
+                reportSection.style.display = 'none';
+                reportContent.textContent = '';
+            }
+        } catch (e) {
+            console.error('setRunning() error:', e);
+        }
+    }
+
+    // =========================================================================
+    // Results rendering
+    // =========================================================================
+    function renderResults(reports) {
+        try {
+            resultsBody.innerHTML = '';
+
+            if (!reports || reports.length === 0) {
+                appendLog('No test reports received.', 'log-status');
+                return;
+            }
+
+            let totalPass = 0, totalFail = 0, totalError = 0;
+
+            for (const report of reports) {
+                const reportUrl = report.url || '?';
+                const results = report.results || [];
+
+                for (const r of results) {
+                    const row = document.createElement('tr');
+                    const statusClass = 'status-' + (r.status || 'skip');
+                    row.innerHTML =
+                        '<td>' + escapeHtml(reportUrl) + '</td>' +
+                        '<td>' + escapeHtml(r.test_name || '?') + '</td>' +
+                        '<td class="' + statusClass + '">' + escapeHtml((r.status || '?').toUpperCase()) + '</td>' +
+                        '<td>' + escapeHtml(r.evidence || r.error_detail || '-') + '</td>' +
+                        '<td>' + (r.duration_seconds ? r.duration_seconds.toFixed(1) + 's' : '-') + '</td>';
+                    resultsBody.appendChild(row);
+
+                    if (r.status === 'pass') totalPass++;
+                    else if (r.status === 'fail') totalFail++;
+                    else if (r.status === 'error') totalError++;
+                }
+            }
+
+            resultsSection.style.display = 'block';
+
+            // Summary bar
+            summaryBar.textContent = 'Total: ' + totalPass + ' pass, ' + totalFail + ' fail, ' + totalError + ' error';
+            if (totalFail + totalError === 0 && totalPass > 0) {
+                summaryBar.className = 'summary-all-pass';
+            } else {
+                summaryBar.className = 'summary-has-failures';
+            }
+            summaryBar.style.display = 'block';
+        } catch (e) {
+            console.error('renderResults() error:', e);
+            showError('Failed to render results: ' + e.message);
+        }
+    }
+
+    // =========================================================================
+    // SSE connection
+    // =========================================================================
+    function startRun() {
+        try {
+            const url = urlInput.value.trim();
+            if (!url) {
+                showError('Please enter a target URL.');
+                return;
+            }
+
+            // Validate URL format
+            try {
+                new URL(url);
+            } catch (e) {
+                showError('Invalid URL format. Please enter a valid URL starting with http:// or https://');
+                return;
+            }
+
+            setRunning(true);
+            logPanel.innerHTML = '';
+            appendLog('Starting agent run...', 'log-status');
+            setStatus('Connecting...');
+
+            const instructions = instructionsInput.value.trim();
+            const params = new URLSearchParams({ url: url, instructions: instructions });
+            const sseUrl = '/api/run?' + params.toString();
+
+            appendLog('Connecting to server...', 'log-status');
+
+            eventSource = new EventSource(sseUrl);
+
+            eventSource.onopen = function () {
+                try {
+                    appendLog('Connected to server.', 'log-status');
+                    setStatus('Running...');
+                    hideError();
+                } catch (e) {
+                    console.error('SSE onopen error:', e);
+                }
+            };
+
+            eventSource.onmessage = function (event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleSSEMessage(data);
+                } catch (e) {
+                    console.error('[Cragent UI] Failed to parse SSE message:', e, event.data);
+                    appendLog('Failed to parse message: ' + event.data, 'log-error');
+                }
+            };
+
+            eventSource.onerror = function (event) {
+                try {
+                    console.error('[Cragent UI] SSE error:', event);
+                    // EventSource will auto-reconnect by default; close it on error
+                    if (eventSource.readyState === EventSource.CLOSED) {
+                        showError('SSE connection closed unexpectedly.');
+                        setRunning(false);
+                        setStatus('Connection lost.');
+                    } else if (eventSource.readyState === EventSource.CONNECTING) {
+                        appendLog('SSE reconnecting...', 'log-stderr');
+                    } else {
+                        showError('SSE connection error.');
+                        stopRun();
+                    }
+                } catch (e) {
+                    console.error('SSE onerror handler error:', e);
+                }
+            };
+
+        } catch (e) {
+            console.error('[Cragent UI] startRun() error:', e);
+            showError('Failed to start run: ' + e.message);
+            setRunning(false);
+        }
+    }
+
+    function stopRun() {
+        try {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            appendLog('Run stopped by user.', 'log-stderr');
+            setStatus('Stopped.');
+            setRunning(false);
+        } catch (e) {
+            console.error('[Cragent UI] stopRun() error:', e);
+        }
+    }
+
+    function handleSSEMessage(data) {
+        try {
+            const type = data.type || 'unknown';
+            const content = data.content || '';
+
+            switch (type) {
+                case 'status':
+                    appendLog(content, 'log-status');
+                    setStatus(content);
+                    break;
+
+                case 'log':
+                    appendLog(content, 'log-log');
+                    break;
+
+                case 'stdout':
+                    appendLog(content, 'log-stdout');
+                    break;
+
+                case 'stderr':
+                    appendLog(content, 'log-stderr');
+                    break;
+
+                case 'error':
+                    appendLog(content, 'log-error');
+                    showError('Error from agent — see log panel for details.');
+                    break;
+
+                case 'interrupt':
+                    appendLog('INTERRUPT: ' + content, 'log-interrupt');
+                    break;
+
+                case 'results':
+                    try {
+                        const reports = data.reports || JSON.parse(content);
+                        renderResults(reports);
+                    } catch (e) {
+                        console.error('[Cragent UI] Failed to parse results:', e);
+                        appendLog('Failed to parse results.', 'log-error');
+                    }
+                    break;
+
+                case 'report':
+                    reportSection.style.display = 'block';
+                    reportContent.textContent = content;
+                    break;
+
+                case 'summary':
+                    appendLog('SUMMARY: ' + content, 'log-status');
+                    break;
+
+                case 'done':
+                    appendLog('Agent run completed.', 'log-status');
+                    setStatus('Done.');
+                    setRunning(false);
+                    if (eventSource) {
+                        eventSource.close();
+                        eventSource = null;
+                    }
+                    break;
+
+                case 'heartbeat':
+                    // Ignore heartbeats in the UI — they keep the connection alive
+                    break;
+
+                default:
+                    appendLog('[' + type + '] ' + content, 'log-stdout');
+                    break;
+            }
+        } catch (e) {
+            console.error('[Cragent UI] handleSSEMessage error:', e);
+            appendLog('Error handling message: ' + e.message, 'log-error');
+        }
+    }
+
+    // =========================================================================
+    // Init
+    // =========================================================================
+
+    </script>
+</body>
+</html>

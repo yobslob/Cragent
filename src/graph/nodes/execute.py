@@ -44,7 +44,6 @@ async def execute_node(state: dict[str, Any], app_config: AppConfig) -> dict[str
 
     logger.info(
         f"Executing {len(test_plan.test_cases)} test cases"
-        f" (max parallel: {app_config.concurrency.max_executors})"
     )
 
     # Log executor assignments for visibility
@@ -92,12 +91,6 @@ async def execute_node(state: dict[str, Any], app_config: AppConfig) -> dict[str
                 exported_storage_state = storage
         else:
             results.append(raw)
-
-    logger.info(
-        f"Execution complete: {sum(1 for r in results if r.get('status') == 'pass')} pass, "
-        f"{sum(1 for r in results if r.get('status') == 'fail')} fail, "
-        f"{sum(1 for r in results if r.get('status') == 'error')} error"
-    )
 
     update: dict[str, Any] = {"current_results": results}
 

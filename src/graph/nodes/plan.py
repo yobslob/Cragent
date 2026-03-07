@@ -62,15 +62,13 @@ async def plan_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, A
 
     # If Gemini asked for clarification and we haven't hit the limit, interrupt
     if test_plan is None and clarification and clarification_count < max_clarifications:
-        logger.info(f"Gemini is asking for clarification: {clarification}")
         user_answer = interrupt({
             "type": "planner_clarification",
             "url": url,
             "question": clarification,
         })
-        # Save context to state — will be available on next invocation
+        # Save context to state -- will be available on next invocation
         new_context = extra_context + f"\nQ: {clarification}\nA: {user_answer}"
-        logger.info(f"User answered: {user_answer}")
         return {
             "planner_context": new_context,
             "planner_clarification_count": clarification_count + 1,
@@ -95,7 +93,6 @@ async def plan_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, A
 
     if test_plan.sub_pages:
         sp_urls = [sp.url for sp in test_plan.sub_pages]
-        logger.info(f"Sub-pages to enqueue: {sp_urls}")
 
     # Log the full plan details for visibility
     _log_test_plan(test_plan, url)
@@ -221,7 +218,7 @@ async def _call_gemini_planner(
             user_prompt=task_prompt,
             config=config.llm.planner.to_dict(),
         )
-        logger.info(f"Gemini raw response ({len(raw_text)} chars): {raw_text[:500]}")
+        logger.debug(f"Gemini raw response ({len(raw_text)} chars)")
 
         # Check if Gemini is asking for clarification
         clarification = _extract_clarification(raw_text)

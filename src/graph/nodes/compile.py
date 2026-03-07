@@ -43,12 +43,6 @@ def compile_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, Any]
         results=results,
     )
 
-    logger.info(
-        f"Compiled report for {url}: "
-        f"{report.pass_count} pass, {report.fail_count} fail, "
-        f"{report.error_count} error, {report.skip_count} skip"
-    )
-
     # Accumulate reports
     reports = list(state.get("reports", []))
     reports.append(report.model_dump())
@@ -75,20 +69,14 @@ def compile_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, Any]
 
             # Skip if already visited
             if normalized in visited_urls:
-                logger.debug(f"Skipping already-visited sub-page: {resolved_url}")
                 continue
 
             # Skip if exceeds max depth
             if new_depth > app_config.depth.max_depth:
-                max_d = app_config.depth.max_depth
-                logger.debug(
-                    f"Skipping sub-page beyond max depth ({new_depth} > {max_d}): {resolved_url}"
-                )
                 continue
 
             # Skip if different domain
             if not is_same_domain(resolved_url, app_config.target_url):
-                logger.debug(f"Skipping external sub-page: {resolved_url}")
                 continue
 
             # Determine storage state for this sub-page
@@ -102,7 +90,6 @@ def compile_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, Any]
             )
             queue.append(request.to_dict())
             enqueued_sub_pages.append(resolved_url)
-            logger.info(f"Enqueued sub-page: {resolved_url} (depth {new_depth})")
 
     # Rich log the sub-page queue status
     _log_queue_status(url, enqueued_sub_pages, queue)

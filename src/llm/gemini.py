@@ -37,7 +37,7 @@ async def capture_screenshot(url: str, headless: bool = True) -> bytes:
             await page.wait_for_timeout(2000)
             screenshot = await page.screenshot(full_page=True, type="png")
             await browser.close()
-            logger.info(f"Captured screenshot of {url} ({len(screenshot)} bytes)")
+
             return screenshot
     except Exception as e:
         raise RuntimeError(f"Failed to capture screenshot of {url}: {e}") from e
@@ -112,11 +112,6 @@ async def call_gemini_planner(
     # User prompt with URL and instructions
     parts.append(types.Part.from_text(text=user_prompt))
 
-    logger.info(
-        f"Calling Gemini ({model_name}) for {url} "
-        f"({'with' if screenshot_bytes else 'without'} screenshot)"
-    )
-
     try:
         response = await client.aio.models.generate_content(
             model=model_name,
@@ -132,7 +127,6 @@ async def call_gemini_planner(
         if not text.strip():
             raise RuntimeError("Gemini returned an empty response")
 
-        logger.debug(f"Gemini response length: {len(text)} chars")
         return text
 
     except Exception as e:

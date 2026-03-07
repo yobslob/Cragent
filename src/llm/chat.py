@@ -86,7 +86,7 @@ async def _call_ollama(
         },
     }
 
-    logger.info(f"Calling Ollama ({model}) for summarization")
+
 
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -144,7 +144,7 @@ async def _call_gemini(
     model_name = config.get("model", "gemini-2.5-flash")
     client = genai.Client(api_key=api_key)
 
-    logger.info(f"Calling Gemini ({model_name}) for summarization")
+
 
     try:
         response = await client.aio.models.generate_content(
