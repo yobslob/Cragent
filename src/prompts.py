@@ -113,12 +113,18 @@ def build_planner_prompt(request_dict: dict[str, Any]) -> str:
         )
 
     if depth == 0:
-        prompt += (
-            "\nThis is the ROOT page. Actively look for important internal links in "
-            "the screenshot that lead to pages with distinct functionality (product pages, "
-            "cart, account, search, categories, etc.) and include them in sub_pages. "
-            "This enables deeper testing of the site.\n"
-        )
+        if user_instructions:
+            prompt += (
+                "\nThis is the ROOT page and the user provided a scoped objective. "
+                "Keep sub_pages as [] unless the user explicitly asks for full-site/deep exploration.\n"
+            )
+        else:
+            prompt += (
+                "\nThis is the ROOT page. Actively look for important internal links in "
+                "the screenshot that lead to pages with distinct functionality (product pages, "
+                "cart, account, search, categories, etc.) and include them in sub_pages. "
+                "This enables deeper testing of the site.\n"
+            )
     else:
         prompt += (
             f"\nThis is a sub-page at depth {depth}. Focus on testing THIS page's "

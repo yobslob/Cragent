@@ -108,6 +108,7 @@ uv run playwright install chromium
 
    browser:
      headless: true
+     allowed_domains_extra: []
    ```
 
 ## Local Development
@@ -166,6 +167,7 @@ uv run python -m src.main --config config.yaml \
 | `browser.headless` | `true` | Set to `false` to watch the browser in real time |
 | `browser.proxy` | `null` | Optional proxy URL for browser sessions |
 | `browser.use_cloud` | `false` | Use cloud browser instances instead of local |
+| `browser.allowed_domains_extra` | `[]` | Extra domains the executor may navigate to (e.g., auth providers like `accounts.google.com`) |
 | `cost.max_total_cost` | `null` | Optional budget cap for total LLM costs (USD) |
 | `cost.calculate_cost` | `true` | Whether to track and log LLM token costs |
 | `report.output_path` | `report.md` | Where to save the report |

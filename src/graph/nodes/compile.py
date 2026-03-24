@@ -56,6 +56,19 @@ def compile_node(state: dict[str, Any], app_config: AppConfig) -> dict[str, Any]
         test_plan = TestPlan.model_validate(test_plan_dict)
         new_depth = depth + 1
 
+        if not _should_enqueue_sub_pages(current_request):
+            _log_queue_status(url, [], queue)
+            return {
+                "queue": queue,
+                "visited_urls": visited_urls,
+                "reports": reports,
+                "current_request": None,
+                "current_test_plan": None,
+                "current_results": [],
+                "planner_context": "",
+                "planner_clarification_count": 0,
+            }
+
         # Determine storage state for child planners
         child_storage_state = current_request.get("parent_storage_state")
         exported_storage = current_request.get("_exported_storage_state")
@@ -152,3 +165,30 @@ def _log_queue_status(
                 border_style="yellow",
             )
         )
+
+
+def _should_enqueue_sub_pages(current_request: dict[str, Any]) -> bool:
+    """Return True when recursion should continue for discovered sub-pages.
+
+    If the user gave a narrow objective (e.g., "test login flow"), avoid
+    recursive crawling unless they explicitly ask for deep/full-site coverage.
+    """
+    instructions = (current_request.get("user_instructions") or "").strip().lower()
+    if not instructions:
+        return True
+
+    broad_signals = (
+        "full site",
+        "entire site",
+        "all pages",
+        "deep",
+        "crawl",
+        "explore",
+        "end-to-end",
+        "e2e",
+        "regression",
+        "sub-page",
+        "subpage",
+    )
+
+    return any(signal in instructions for signal in broad_signals)

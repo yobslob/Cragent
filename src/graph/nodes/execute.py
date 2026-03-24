@@ -139,8 +139,9 @@ async def _run_executor(
             # Set up browser session — restrict navigation to the target domain
             target_domain = _extract_domain(test_case.get("url", ""))
             session_kwargs: dict[str, Any] = {"headless": config.browser.headless}
-            if target_domain:
-                session_kwargs["allowed_domains"] = [target_domain]
+            allowed_domains = _build_allowed_domains(target_domain, config)
+            if allowed_domains:
+                session_kwargs["allowed_domains"] = allowed_domains
             if storage_state:
                 session_kwargs["storage_state"] = storage_state
             if config.browser.proxy:
@@ -175,7 +176,10 @@ async def _run_executor(
             )
 
             logger.info(f"Starting executor: {test_name}")
-            result = await agent.run(max_steps=15)
+            result = await asyncio.wait_for(
+                agent.run(max_steps=15),
+                timeout=float(config.concurrency.step_timeout),
+            )
             duration = time.time() - start_time
 
             # Try to parse structured output
@@ -191,6 +195,25 @@ async def _run_executor(
                     logger.debug("Failed to export storage state", exc_info=True)
 
             return (executor_result.model_dump(), exported_state)
+
+        except asyncio.TimeoutError:
+            duration = time.time() - start_time
+            logger.error(
+                f"Executor timed out for '{test_name}' after "
+                f"{config.concurrency.step_timeout}s"
+            )
+            result = ExecutorResult(
+                test_name=test_name,
+                status="error",
+                evidence="",
+                error_detail=(
+                    "Executor exceeded configured timeout "
+                    f"({config.concurrency.step_timeout}s)"
+                ),
+                steps_executed=[],
+                duration_seconds=duration,
+            )
+            return (result.model_dump(), None)
 
         except Exception as e:
             duration = time.time() - start_time
@@ -356,3 +379,33 @@ def _extract_domain(url: str) -> str | None:
         return parsed.hostname or None
     except Exception:
         return None
+
+
+def _build_allowed_domains(target_domain: str | None, config: AppConfig) -> list[str]:
+    """Build a de-duplicated allowlist for browser navigation domains.
+
+    Args:
+        target_domain: Domain extracted from the test case URL.
+        config: Application configuration.
+
+    Returns:
+        Ordered list of allowed domains.
+    """
+    domains: list[str] = []
+
+    if target_domain:
+        domains.append(target_domain.lower())
+
+    for domain in config.browser.allowed_domains_extra:
+        d = (domain or "").strip().lower()
+        if d:
+            domains.append(d)
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for domain in domains:
+        if domain not in seen:
+            seen.add(domain)
+            deduped.append(domain)
+
+    return deduped

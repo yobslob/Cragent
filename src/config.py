@@ -65,6 +65,12 @@ class BrowserConfig(BaseModel):
     headless: bool = True
     proxy: str | None = None
     use_cloud: bool = False
+    allowed_domains_extra: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Additional allowed domains for browser navigation (e.g., auth providers)."
+        ),
+    )
 
 
 class CostConfig(BaseModel):
